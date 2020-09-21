@@ -31,7 +31,7 @@ abstract class MembershipManagementFlowTest(
 
     protected lateinit var authorisedMembers: List<StartedMockNode>
     protected lateinit var regularMembers: List<StartedMockNode>
-    private lateinit var mockNetwork: MockNetwork
+    protected lateinit var mockNetwork: MockNetwork
 
     @Before
     fun setUp() {
