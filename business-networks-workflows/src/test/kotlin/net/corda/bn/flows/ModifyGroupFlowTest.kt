@@ -136,11 +136,11 @@ class ModifyGroupFlowTest : MembershipManagementFlowTest(numberOfAuthorisedMembe
         val networkId = authorisedMembership.networkId
         val regularMembership = runRequestAndActivateMembershipFlows(regularMember, authorisedMember, networkId).tx.outputStates.single() as MembershipState
 
-        val group = runCreateGroupFlow(authorisedMember, networkId).tx.outputStates.single() as GroupState
+        val group = runCreateGroupFlow(authorisedMember, networkId, additionalParticipants = setOf(regularMembership.linearId)).tx.outputStates.single() as GroupState
 
         val restartedAuthorisedMember = restartNodeWithRotateIdentityKey(authorisedMember)
         restartNodeWithRotateIdentityKey(regularMember)
-        runModifyGroupFlow(restartedAuthorisedMember, group.linearId, "default-group")
+        runModifyGroupFlow(restartedAuthorisedMember, group.linearId, "default-group", setOf(authorisedMembership.linearId, regularMembership.linearId))
     }
 
     @Test(timeout = 300_000)
