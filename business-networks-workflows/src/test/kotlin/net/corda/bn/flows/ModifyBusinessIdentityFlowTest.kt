@@ -55,12 +55,15 @@ class ModifyBusinessIdentityFlowTest : MembershipManagementFlowTest(numberOfAuth
         val authorisedMember = authorisedMembers.first()
         val regularMember = regularMembers.first()
 
-        val networkId = (runCreateBusinessNetworkFlow(authorisedMember).tx.outputStates.single() as MembershipState).networkId
-        val membership = runRequestAndActivateMembershipFlows(regularMember, authorisedMember, networkId).tx.outputStates.single() as MembershipState
+        val (networkId, authorisedMembershipId) = (runCreateBusinessNetworkFlow(authorisedMember).tx.outputStates.single() as MembershipState).run {
+            networkId to linearId
+        }
+        val regularMembership = runRequestAndActivateMembershipFlows(regularMember, authorisedMember, networkId).tx.outputStates.single() as MembershipState
 
         val restartedAuthorisedMember = restartNodeWithRotateIdentityKey(authorisedMember)
         restartNodeWithRotateIdentityKey(regularMember)
-        runModifyBusinessIdentityFlow(restartedAuthorisedMember, membership.linearId, DummyIdentity("dummy-identity"))
+        runModifyBusinessIdentityFlow(restartedAuthorisedMember, regularMembership.linearId, DummyIdentity("dummy-identity"))
+        runModifyBusinessIdentityFlow(restartedAuthorisedMember, authorisedMembershipId, DummyIdentity("dummy-identity"))
     }
 
     @Test(timeout = 300_000)

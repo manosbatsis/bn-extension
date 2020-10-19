@@ -52,7 +52,7 @@ class ModifyRolesFlow(private val membershipId: UniqueIdentifier, private val ro
             it.state.data.identity.cordaIdentity
         }.filterNot {
             // remove modified member from signers only if it is not the flow initiator (since initiator must sign the transaction)
-            it == membership.state.data.identity.cordaIdentity && it != ourIdentity
+            it == membership.state.data.identity.cordaIdentity && it.name != ourIdentity.name
         }.updated().toPartyList()
 
         // building transaction

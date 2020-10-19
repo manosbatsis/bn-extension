@@ -2,6 +2,8 @@ package net.corda.bn.flows
 
 import net.corda.bn.contracts.MembershipContract
 import net.corda.bn.states.BNORole
+import net.corda.bn.states.BNRole
+import net.corda.bn.states.MemberRole
 import net.corda.bn.states.MembershipState
 import net.corda.core.contracts.UniqueIdentifier
 import org.junit.Test
@@ -56,12 +58,15 @@ class ModifyRolesFlowTest : MembershipManagementFlowTest(numberOfAuthorisedMembe
         val authorisedMember = authorisedMembers.first()
         val regularMember = regularMembers.first()
 
-        val networkId = (runCreateBusinessNetworkFlow(authorisedMember).tx.outputStates.single() as MembershipState).networkId
-        val membership = runRequestAndActivateMembershipFlows(regularMember, authorisedMember, networkId).tx.outputStates.single() as MembershipState
+        val (networkId, authorisedMembershipId) = (runCreateBusinessNetworkFlow(authorisedMember).tx.outputStates.single() as MembershipState).run {
+            networkId to linearId
+        }
+        val regularMembership = runRequestAndActivateMembershipFlows(regularMember, authorisedMember, networkId).tx.outputStates.single() as MembershipState
 
         val restartedAuthorisedMember = restartNodeWithRotateIdentityKey(authorisedMember)
         restartNodeWithRotateIdentityKey(regularMember)
-        runModifyRolesFlow(restartedAuthorisedMember, membership.linearId, setOf(BNORole()))
+        runModifyRolesFlow(restartedAuthorisedMember, regularMembership.linearId, setOf(BNORole()))
+        runModifyRolesFlow(restartedAuthorisedMember, authorisedMembershipId, setOf(BNORole(), MemberRole()))
     }
 
     @Test(timeout = 300_000)
