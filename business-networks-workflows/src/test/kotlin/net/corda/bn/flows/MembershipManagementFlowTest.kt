@@ -272,6 +272,12 @@ abstract class MembershipManagementFlowTest(
         certStore.storeLegalIdentity(X509Utilities.NODE_IDENTITY_KEY_ALIAS)
         return certStore[oldIdentityAlias].publicKey to oldIdentityAlias
     }
+
+    protected fun advertiseNodesToNetwork(nodes: List<TestStartedNode>) {
+        nodes.forEach { node ->
+            nodes.forEach { node.services.networkMapCache.addOrUpdateNode(it.info) }
+        }
+    }
 }
 
 @CordaSerializable

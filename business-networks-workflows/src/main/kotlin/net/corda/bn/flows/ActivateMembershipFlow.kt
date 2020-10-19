@@ -42,7 +42,13 @@ class ActivateMembershipFlow(private val membershipId: UniqueIdentifier, private
 
         // fetch signers
         val authorisedMemberships = bnService.getMembersAuthorisedToModifyMembership(networkId).toSet()
-        val signers = authorisedMemberships.filter { it.state.data.isActive() }.map { it.state.data.identity.cordaIdentity }
+        val signers = authorisedMemberships.filter {
+            it.state.data.isActive()
+        }.map {
+            val name = it.state.data.identity.cordaIdentity.name
+            serviceHub.identityService.wellKnownPartyFromX500Name(name)
+                    ?: throw FlowException("Party with $name X500 name doesn't exist")
+        }
 
         // building transaction
         val outputMembership = membership.state.data.copy(status = MembershipStatus.ACTIVE, modified = serviceHub.clock.instant())
@@ -54,7 +60,12 @@ class ActivateMembershipFlow(private val membershipId: UniqueIdentifier, private
         builder.verify(serviceHub)
 
         // collect signatures and finalise transaction
-        val observerSessions = (outputMembership.participants - ourIdentity).map { initiateFlow(it) }
+        val observerSessions = (outputMembership.participants.map {
+            it.nameOrNull()?.let { name ->
+                serviceHub.identityService.wellKnownPartyFromX500Name(name)
+                        ?: throw FlowException("Party with $name X500 name doesn't exist")
+            } ?: it
+        } - ourIdentity).map { initiateFlow(it) }
         val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers)
 
         auditLogger.info("$ourIdentity successfully activated member with $membershipId membership ID")
