@@ -15,6 +15,7 @@ import net.corda.core.flows.InitiatingFlow
 import net.corda.core.flows.ReceiveFinalityFlow
 import net.corda.core.flows.SignTransactionFlow
 import net.corda.core.flows.StartableByRPC
+import net.corda.core.identity.AbstractParty
 import net.corda.core.identity.Party
 import net.corda.core.serialization.CordaSerializable
 import net.corda.core.transactions.SignedTransaction
@@ -99,7 +100,7 @@ class RequestMembershipFlowResponder(private val session: FlowSession) : Members
 
         // check whether party is authorised to activate membership
         val bnService = serviceHub.cordaService(BNService::class.java)
-        authorise(networkId, bnService) { it.canActivateMembership() }
+        val ourMembershipIdentity = authorise(networkId, bnService) { it.canActivateMembership() }.state.data.identity.cordaIdentity
 
         val counterparty = session.counterparty
         if (bnService.isBusinessNetworkMember(networkId, counterparty)) {
@@ -114,28 +115,28 @@ class RequestMembershipFlowResponder(private val session: FlowSession) : Members
         try {
             // fetch observers
             val authorisedMemberships = bnService.getMembersAuthorisedToModifyMembership(networkId)
-            val observers = (authorisedMemberships.map { it.state.data.identity.cordaIdentity } - ourIdentity).toSet()
+            val observers = authorisedMemberships.map { it.state.data.identity.cordaIdentity }.filter { it.name != ourIdentity.name }.toSet()
 
             // build transaction
             val membershipState = MembershipState(
                     identity = MembershipIdentity(counterparty, businessIdentity),
                     networkId = networkId,
                     status = MembershipStatus.PENDING,
-                    issuer = ourIdentity,
-                    participants = (observers + ourIdentity + counterparty).toList()
+                    issuer = ourMembershipIdentity,
+                    participants = (observers + ourMembershipIdentity + counterparty).toList()
             )
-            val requiredSigners = listOf(ourIdentity.owningKey, counterparty.owningKey)
+            val requiredSigners = listOf(ourMembershipIdentity.owningKey, counterparty.owningKey)
             val builder = TransactionBuilder(notary ?: serviceHub.networkMapCache.notaryIdentities.first())
                     .addOutputState(membershipState)
                     .addCommand(MembershipContract.Commands.Request(requiredSigners), requiredSigners)
             builder.verify(serviceHub)
 
             // sign transaction
-            val selfSignedTransaction = serviceHub.signInitialTransaction(builder)
+            val selfSignedTransaction = serviceHub.signInitialTransaction(builder, ourMembershipIdentity.owningKey)
             val allSignedTransaction = subFlow(CollectSignaturesFlow(selfSignedTransaction, listOf(session)))
 
             // finalise transaction
-            val observerSessions = observers.map { initiateFlow(it) }.toSet()
+            val observerSessions = observers.map { initiateFlow(it as AbstractParty) }.toSet()
             subFlow(FinalityFlow(allSignedTransaction, observerSessions + session))
         } finally {
             // deleting previously created lock since all of the changes are persisted on ledger

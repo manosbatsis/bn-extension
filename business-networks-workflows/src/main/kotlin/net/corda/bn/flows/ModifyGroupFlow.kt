@@ -12,9 +12,11 @@ import net.corda.core.flows.FlowSession
 import net.corda.core.flows.InitiatedBy
 import net.corda.core.flows.InitiatingFlow
 import net.corda.core.flows.StartableByRPC
+import net.corda.core.identity.AbstractParty
 import net.corda.core.identity.Party
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
+import java.security.PublicKey
 
 /**
  * This flow is initiated by any member authorised to modify Business Network Groups. Queries for groups with [groupId] linear ID and
@@ -71,7 +73,7 @@ class ModifyGroupInternalFlow(
         val (group, networkId) = fetchGroupAndValidateName(bnService)
 
         // check whether party is authorised to initiate flow
-        authorise(networkId, bnService) { it.canModifyGroups() }
+        val ourPublicKey = authorise(networkId, bnService) { it.canModifyGroups() }.state.data.identity.cordaIdentity.owningKey
 
         // fetch all participants' memberships and identities
         val (participantsMemberships, participantsIdentities) = fetchParticipantsMembershipsAndIdentities(bnService)
@@ -80,7 +82,7 @@ class ModifyGroupInternalFlow(
         val (outputGroup, oldParticipantsMemberships) = validateParticipantsModification(networkId, group, participantsIdentities, bnService)
 
         // execute group modification (transaction building, signing, finalisation and post memberships sync)
-        val finalisedTransaction = executeGroupModification(networkId, oldParticipantsMemberships, participantsMemberships, group, outputGroup, bnService)
+        val finalisedTransaction = executeGroupModification(networkId, oldParticipantsMemberships, participantsMemberships, group, outputGroup, ourPublicKey, bnService)
 
         if (name != null) {
             auditLogger.info("$ourIdentity successfully modified name of a Business Network Group with $groupId group ID from \"${group.state.data.name}\" to \"$name\"")
@@ -215,11 +217,12 @@ class ModifyGroupInternalFlow(
             participantsMemberships: List<StateAndRef<MembershipState>>?,
             inputGroup: StateAndRef<GroupState>,
             outputGroup: GroupState,
+            ourPublicKey: PublicKey,
             bnService: BNService
     ): SignedTransaction {
         // fetch signers
         val authorisedMemberships = bnService.getMembersAuthorisedToModifyMembership(networkId)
-        val signers = authorisedMemberships.filter { it.state.data.isActive() }.map { it.state.data.identity.cordaIdentity }.updated().toPartyList()
+        val signers = authorisedMemberships.filter { it.state.data.isActive() }.map { it.state.data.identity.cordaIdentity }
 
         // building transaction
         val requiredSigners = signers.map { it.owningKey }
@@ -230,9 +233,9 @@ class ModifyGroupInternalFlow(
         builder.verify(serviceHub)
 
         // collect signatures and finalise transaction
-        val observers = inputGroup.state.data.participants.updated().toSet() + outputGroup.participants.updated() - ourIdentity
-        val observerSessions = observers.map { initiateFlow(it) }
-        val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers)
+        val observers = (inputGroup.state.data.participants.toSet() + outputGroup.participants).filter { it.name != ourIdentity.name }
+        val observerSessions = observers.map { initiateFlow(it as AbstractParty) }
+        val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers, ourPublicKey)
 
         // sync memberships between all group members
         participantsMemberships?.also { membershipsToSend ->

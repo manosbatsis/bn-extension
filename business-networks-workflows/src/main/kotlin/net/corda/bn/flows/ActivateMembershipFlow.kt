@@ -38,11 +38,11 @@ class ActivateMembershipFlow(private val membershipId: UniqueIdentifier, private
 
         // check whether party is authorised to initiate flow
         val networkId = membership.state.data.networkId
-        authorise(networkId, bnService) { it.canActivateMembership() }
+        val ourPublicKey = authorise(networkId, bnService) { it.canActivateMembership() }.state.data.identity.cordaIdentity.owningKey
 
         // fetch signers
         val authorisedMemberships = bnService.getMembersAuthorisedToModifyMembership(networkId).toSet()
-        val signers = authorisedMemberships.filter { it.state.data.isActive() }.map { it.state.data.identity.cordaIdentity }.updated().toPartyList()
+        val signers = authorisedMemberships.filter { it.state.data.isActive() }.map { it.state.data.identity.cordaIdentity }
 
         // building transaction
         val outputMembership = membership.state.data.copy(status = MembershipStatus.ACTIVE, modified = serviceHub.clock.instant())
@@ -54,8 +54,8 @@ class ActivateMembershipFlow(private val membershipId: UniqueIdentifier, private
         builder.verify(serviceHub)
 
         // collect signatures and finalise transaction
-        val observerSessions = (outputMembership.participants.updated() - ourIdentity).map { initiateFlow(it) }
-        val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers)
+        val observerSessions = outputMembership.participants.filter { it.nameOrNull() != ourIdentity.name }.map { initiateFlow(it) }
+        val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers, ourPublicKey)
 
         auditLogger.info("$ourIdentity successfully activated member with $membershipId membership ID")
 

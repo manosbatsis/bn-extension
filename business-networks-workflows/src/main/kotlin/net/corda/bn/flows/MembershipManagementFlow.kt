@@ -22,6 +22,7 @@ import net.corda.core.utilities.unwrap
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.lang.IllegalStateException
+import java.security.PublicKey
 
 /**
  * This abstract class is extended by any flow which will use common membership management helper methods.
@@ -73,14 +74,15 @@ abstract class MembershipManagementFlow<T> : FlowLogic<T>() {
     protected fun collectSignaturesAndFinaliseTransaction(
             builder: TransactionBuilder,
             observerSessions: List<FlowSession>,
-            signers: List<Party>
+            signers: List<Party>,
+            initiatorPublicKey: PublicKey
     ): SignedTransaction {
         // send info to observers whether they need to sign the transaction
         observerSessions.forEach { it.send(it.counterparty in signers) }
 
-        val selfSignedTransaction = serviceHub.signInitialTransaction(builder)
+        val selfSignedTransaction = serviceHub.signInitialTransaction(builder, initiatorPublicKey)
         val signerSessions = observerSessions.filter { it.counterparty in signers }
-        val allSignedTransaction = subFlow(CollectSignaturesFlow(selfSignedTransaction, signerSessions))
+        val allSignedTransaction = subFlow(CollectSignaturesFlow(selfSignedTransaction, signerSessions, listOf(initiatorPublicKey)))
 
         return subFlow(FinalityFlow(allSignedTransaction, observerSessions, StatesToRecord.ALL_VISIBLE))
     }
@@ -174,13 +176,4 @@ abstract class MembershipManagementFlow<T> : FlowLogic<T>() {
             subFlow(ModifyParticipantsFlow(membership, newParticipants.toList(), signers, notary))
         }
     }
-
-    protected fun Collection<AbstractParty>.updated(): List<AbstractParty> = map {
-        it.nameOrNull()?.let { name ->
-            serviceHub.identityService.wellKnownPartyFromX500Name(name)
-                    ?: throw FlowException("Party with $name X500 name doesn't exist")
-        } ?: it
-    }
-
-    protected fun Collection<AbstractParty>.toPartyList(): List<Party> = map { it as Party }
 }

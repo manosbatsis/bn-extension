@@ -43,7 +43,7 @@ class OnboardMembershipFlow(
 
         // check whether party is authorised to initiate flow
         val bnService = serviceHub.cordaService(BNService::class.java)
-        authorise(networkId, bnService) { it.canActivateMembership() }
+        val ourMembershipIdentity = authorise(networkId, bnService) { it.canActivateMembership() }.state.data.identity.cordaIdentity
 
         // check whether onboarded party is already member of given Business Network
         if (bnService.isBusinessNetworkMember(networkId, onboardedParty)) {
@@ -58,24 +58,24 @@ class OnboardMembershipFlow(
         try {
             // fetch observers
             val authorisedMembers = bnService.getMembersAuthorisedToModifyMembership(networkId)
-            val observers = (authorisedMembers.map { it.state.data.identity.cordaIdentity } - ourIdentity).toSet()
+            val observers = authorisedMembers.map { it.state.data.identity.cordaIdentity }.filter { it.name != ourIdentity.name }.toSet()
 
             // build transaction
             val membershipState = MembershipState(
                     identity = MembershipIdentity(onboardedParty, businessIdentity),
                     networkId = networkId,
                     status = MembershipStatus.ACTIVE,
-                    issuer = ourIdentity,
-                    participants = (observers + ourIdentity + onboardedParty).toList()
+                    issuer = ourMembershipIdentity,
+                    participants = (observers + ourMembershipIdentity + onboardedParty).toList()
             )
-            val requiredSigners = listOf(ourIdentity.owningKey, onboardedParty.owningKey)
+            val requiredSigners = listOf(ourMembershipIdentity.owningKey, onboardedParty.owningKey)
             val builder = TransactionBuilder(notary ?: serviceHub.networkMapCache.notaryIdentities.first())
                     .addOutputState(membershipState)
                     .addCommand(MembershipContract.Commands.Onboard(requiredSigners), requiredSigners)
             builder.verify(serviceHub)
 
             val observerSessions = (observers + onboardedParty).map { initiateFlow(it) }
-            val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, listOf(ourIdentity, onboardedParty))
+            val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, listOf(ourIdentity, onboardedParty), ourMembershipIdentity.owningKey)
 
             auditLogger.info("$ourIdentity successfully onboarded $onboardedParty to a Business Network with $networkId")
 

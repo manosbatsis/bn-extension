@@ -41,7 +41,7 @@ class ModifyBusinessIdentityFlow(
 
         // check whether party is authorised to initiate flow
         val networkId = membership.state.data.networkId
-        authorise(networkId, bnService) { it.canModifyBusinessIdentity() }
+        val ourMembershipIdentity = authorise(networkId, bnService) { it.canModifyBusinessIdentity() }.state.data.identity.cordaIdentity
 
         // fetch signers
         val authorisedMemberships = bnService.getMembersAuthorisedToModifyMembership(networkId).toSet()
@@ -52,7 +52,7 @@ class ModifyBusinessIdentityFlow(
         }.filterNot {
             // remove modified member from signers only if it is not the flow initiator (since initiator must sign the transaction)
             it == membership.state.data.identity.cordaIdentity && it.name != ourIdentity.name
-        }.updated().toPartyList()
+        }
 
         // building transaction
         val outputMembership = membership.state.data.run {
@@ -62,12 +62,12 @@ class ModifyBusinessIdentityFlow(
         val builder = TransactionBuilder(notary ?: serviceHub.networkMapCache.notaryIdentities.first())
                 .addInputState(membership)
                 .addOutputState(outputMembership)
-                .addCommand(MembershipContract.Commands.ModifyBusinessIdentity(requiredSigners, ourIdentity), requiredSigners)
+                .addCommand(MembershipContract.Commands.ModifyBusinessIdentity(requiredSigners, ourMembershipIdentity), requiredSigners)
         builder.verify(serviceHub)
 
         // collect signatures and finalise transaction
-        val observerSessions = (outputMembership.participants.updated() - ourIdentity).map { initiateFlow(it) }
-        val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers)
+        val observerSessions = outputMembership.participants.filter { it.nameOrNull() != ourIdentity.name }.map { initiateFlow(it) }
+        val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers, ourMembershipIdentity.owningKey)
 
         auditLogger.info("$ourIdentity successfully modified Business Identity of a member with $membership membership ID from " +
                 "${membership.state.data.identity.businessIdentity} to $businessIdentity")

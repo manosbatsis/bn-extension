@@ -42,7 +42,7 @@ class ModifyRolesFlow(private val membershipId: UniqueIdentifier, private val ro
 
         // check whether party is authorised to initiate flow
         val networkId = membership.state.data.networkId
-        authorise(networkId, bnService) { it.canModifyRoles() }
+        val ourMembershipIdentity = authorise(networkId, bnService) { it.canModifyRoles() }.state.data.identity.cordaIdentity
 
         // fetch signers
         val authorisedMemberships = bnService.getMembersAuthorisedToModifyMembership(networkId).toSet()
@@ -53,7 +53,7 @@ class ModifyRolesFlow(private val membershipId: UniqueIdentifier, private val ro
         }.filterNot {
             // remove modified member from signers only if it is not the flow initiator (since initiator must sign the transaction)
             it == membership.state.data.identity.cordaIdentity && it.name != ourIdentity.name
-        }.updated().toPartyList()
+        }
 
         // building transaction
         val outputMembership = membership.state.data.copy(roles = roles, modified = serviceHub.clock.instant())
@@ -61,12 +61,12 @@ class ModifyRolesFlow(private val membershipId: UniqueIdentifier, private val ro
         val builder = TransactionBuilder(notary ?: serviceHub.networkMapCache.notaryIdentities.first())
                 .addInputState(membership)
                 .addOutputState(outputMembership)
-                .addCommand(MembershipContract.Commands.ModifyRoles(requiredSigners, ourIdentity), requiredSigners)
+                .addCommand(MembershipContract.Commands.ModifyRoles(requiredSigners, ourMembershipIdentity), requiredSigners)
         builder.verify(serviceHub)
 
         // collect signatures and finalise transactions
-        val observerSessions = (outputMembership.participants.updated() - ourIdentity).map { initiateFlow(it) }
-        val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers)
+        val observerSessions = outputMembership.participants.filter { it.nameOrNull() != ourIdentity.name }.map { initiateFlow(it) }
+        val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers, ourMembershipIdentity.owningKey)
 
         auditLogger.info("$ourIdentity successfully modified roles for membership with $membershipId membership ID from ${membership.state.data.roles} to $roles")
 

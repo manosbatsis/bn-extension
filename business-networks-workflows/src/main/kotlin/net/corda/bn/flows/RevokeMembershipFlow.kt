@@ -34,15 +34,11 @@ class RevokeMembershipFlow(private val membershipId: UniqueIdentifier, private v
 
         // check whether party is authorised to initiate flow
         val networkId = membership.state.data.networkId
-        authorise(networkId, bnService) { it.canRevokeMembership() }
+        val ourPublicKey = authorise(networkId, bnService) { it.canRevokeMembership() }.state.data.identity.cordaIdentity.owningKey
 
         // fetch signers
         val authorisedMemberships = bnService.getMembersAuthorisedToModifyMembership(networkId)
-        val signers = (authorisedMemberships.filter {
-            it.state.data.isActive()
-        }.map {
-            it.state.data.identity.cordaIdentity
-        } - membership.state.data.identity.cordaIdentity).updated().toPartyList()
+        val signers = authorisedMemberships.filter { it.state.data.isActive() }.map { it.state.data.identity.cordaIdentity } - membership.state.data.identity.cordaIdentity
 
         // remove revoked member from all the groups he is participant of
         val revokedMemberIdentity = membership.state.data.identity.cordaIdentity
@@ -66,8 +62,8 @@ class RevokeMembershipFlow(private val membershipId: UniqueIdentifier, private v
         builder.verify(serviceHub)
 
         // collect signatures and finalise transaction
-        val observerSessions = (membership.state.data.participants.updated() - ourIdentity).map { initiateFlow(it) }
-        val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers)
+        val observerSessions = membership.state.data.participants.filter { it.nameOrNull() != ourIdentity.name }.map { initiateFlow(it) }
+        val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers, ourPublicKey)
 
         auditLogger.info("$ourIdentity successfully revoked member with $membershipId membership ID")
 

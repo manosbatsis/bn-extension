@@ -8,6 +8,7 @@ import net.corda.core.flows.FlowSession
 import net.corda.core.flows.InitiatedBy
 import net.corda.core.flows.InitiatingFlow
 import net.corda.core.flows.StartableByRPC
+import net.corda.core.identity.AbstractParty
 import net.corda.core.identity.Party
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
@@ -37,7 +38,7 @@ class DeleteGroupFlow(private val groupId: UniqueIdentifier, private val notary:
 
         // check whether party is authorised to initiate flow
         val networkId = group.state.data.networkId
-        authorise(networkId, bnService) { it.canModifyGroups() }
+        val ourPublicKey = authorise(networkId, bnService) { it.canModifyGroups() }.state.data.identity.cordaIdentity.owningKey
 
         // check whether any member is not participant of any group
         val oldParticipantsMemberships = group.state.data.participants.map {
@@ -53,7 +54,7 @@ class DeleteGroupFlow(private val groupId: UniqueIdentifier, private val notary:
 
         // fetch signers
         val authorisedMemberships = bnService.getMembersAuthorisedToModifyMembership(networkId)
-        val signers = authorisedMemberships.filter { it.state.data.isActive() }.map { it.state.data.identity.cordaIdentity }.updated().toPartyList()
+        val signers = authorisedMemberships.filter { it.state.data.isActive() }.map { it.state.data.identity.cordaIdentity }
 
         // building group exit transaction since deleted group state must be marked historic on all participants's vaults.
         val requiredSigners = signers.map { it.owningKey }
@@ -63,9 +64,9 @@ class DeleteGroupFlow(private val groupId: UniqueIdentifier, private val notary:
         builder.verify(serviceHub)
 
         // collect signatures and finalise transaction
-        val observers = group.state.data.participants.updated() - ourIdentity
-        val observerSessions = observers.map { initiateFlow(it) }
-        val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers)
+        val observers = group.state.data.participants.filter { it.name != ourIdentity.name }
+        val observerSessions = observers.map { initiateFlow(it as AbstractParty) }
+        val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers, ourPublicKey)
 
         // sync memberships' participants according to removed participants of the groups member is part of
         syncMembershipsParticipants(networkId, oldParticipantsMemberships, signers, bnService, notary)

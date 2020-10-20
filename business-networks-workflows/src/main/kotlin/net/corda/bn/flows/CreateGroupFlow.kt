@@ -9,6 +9,7 @@ import net.corda.core.flows.FlowSession
 import net.corda.core.flows.InitiatedBy
 import net.corda.core.flows.InitiatingFlow
 import net.corda.core.flows.StartableByRPC
+import net.corda.core.identity.AbstractParty
 import net.corda.core.identity.Party
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
@@ -71,7 +72,7 @@ class CreateGroupFlow(
 
             // fetch signers
             val authorisedMemberships = bnService.getMembersAuthorisedToModifyMembership(networkId)
-            val signers = authorisedMemberships.filter { it.state.data.isActive() }.map { it.state.data.identity.cordaIdentity }.updated().toPartyList()
+            val signers = authorisedMemberships.filter { it.state.data.isActive() }.map { it.state.data.identity.cordaIdentity }
 
             // building transaction
             val group = GroupState(
@@ -88,9 +89,9 @@ class CreateGroupFlow(
             builder.verify(serviceHub)
 
             // collect signatures and finalise transaction
-            val observers = additionalParticipantsIdentities.updated() - ourIdentity
-            val observerSessions = observers.map { initiateFlow(it) }
-            val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers)
+            val observers = additionalParticipantsIdentities.filter { it.name != ourIdentity.name }
+            val observerSessions = observers.map { initiateFlow(it as AbstractParty) }
+            val finalisedTransaction = collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers, ourMembership.state.data.identity.cordaIdentity.owningKey)
 
             // exchange memberships between new group participants
             sendMemberships(additionalParticipantsMemberships + ourMembership, observerSessions, observerSessions.toHashSet())

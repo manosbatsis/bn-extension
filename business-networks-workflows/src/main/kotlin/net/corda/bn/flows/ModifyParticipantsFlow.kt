@@ -33,6 +33,11 @@ class ModifyParticipantsFlow(
         auditLogger.info("$ourIdentity started modifying list of participants for membership with ${membership.state.data.linearId} membership ID " +
                 "to be $participants")
 
+        val bnService = serviceHub.cordaService(BNService::class.java)
+        val networkId = membership.state.data.networkId
+        val ourPublicKey = bnService.getMembership(networkId, ourIdentity)?.state?.data?.identity?.cordaIdentity?.owningKey
+                ?: throw MembershipNotFoundException("$ourIdentity is not member of a Business Network with $networkId ID")
+
         val requiredSigners = signers.map { it.owningKey }
         val builder = TransactionBuilder(notary ?: serviceHub.networkMapCache.notaryIdentities.first())
                 .addInputState(membership)
@@ -40,9 +45,9 @@ class ModifyParticipantsFlow(
                 .addCommand(MembershipContract.Commands.ModifyParticipants(requiredSigners), requiredSigners)
         builder.verify(serviceHub)
 
-        val observers = membership.state.data.participants.updated().toSet() + participants.updated() - ourIdentity
+        val observers = (membership.state.data.participants.toSet() + participants).filter { it.nameOrNull() != ourIdentity.name }
         val observerSessions = observers.map { initiateFlow(it) }
-        collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers)
+        collectSignaturesAndFinaliseTransaction(builder, observerSessions, signers, ourPublicKey)
 
         auditLogger.info("$ourIdentity successfully modified list of participants for membership with ${membership.state.data.linearId} membership ID " +
                 "from ${membership.state.data.participants} to $participants")
